@@ -22,14 +22,18 @@ import android.content.*;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.util.Log;
-import android.widget.SeekBar;
-import android.widget.TextView;
+import android.view.View;
+import android.widget.*;
+import butterknife.ButterKnife;
+import butterknife.InjectView;
 import com.actionbarsherlock.app.SherlockActivity;
 import com.actionbarsherlock.view.Menu;
 import com.actionbarsherlock.view.MenuItem;
 import com.polkapolka.bluetooth.le.R;
 import com.polkapolka.bluetooth.le.attr.SampleGattAttributes;
 import com.polkapolka.bluetooth.le.service.BluetoothLeService;
+import com.polkapolka.bluetooth.le.util.MathHelper;
+import com.polkapolka.bluetooth.le.util.ViewHelper;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -72,6 +76,28 @@ public class DeviceControlActivity extends SherlockActivity {
 
     private final String LIST_NAME = "NAME";
     private final String LIST_UUID = "UUID";
+
+    RoundKnobButton mRotateBtn;
+
+    @InjectView(R.id.rotate_btn_parent)
+    RelativeLayout mRotateBtnParent;
+
+    @InjectView(R.id.hidden_black_small_circle)
+    ImageView mHiddenBlackSmallCircle;
+
+    float[] mSmallCircleSize = {0, 0};
+
+    final float[] DEGREE_RANGE = {45, 135 + 180};
+
+    float mCirclesRadius;
+
+    final int POINT_NUM = 24;
+
+    ArrayList<ImageView> mSmallBlackCircleArray = new ArrayList<ImageView>();
+
+    ArrayList<ImageView> mSmallWhiteCircleArray = new ArrayList<ImageView>();
+
+    private boolean mHasPartInit = false;
 
     // Code to manage Service lifecycle.
     private final ServiceConnection mServiceConnection = new ServiceConnection() {
@@ -130,6 +156,8 @@ public class DeviceControlActivity extends SherlockActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.gatt_services_characteristics);
 
+        ButterKnife.inject(this);
+
         final Intent intent = getIntent();
         mDeviceName = intent.getStringExtra(EXTRAS_DEVICE_NAME);
         mDeviceAddress = intent.getStringExtra(EXTRAS_DEVICE_ADDRESS);
@@ -149,6 +177,48 @@ public class DeviceControlActivity extends SherlockActivity {
         getActionBar().setDisplayHomeAsUpEnabled(true);
         Intent gattServiceIntent = new Intent(this, BluetoothLeService.class);
         bindService(gattServiceIntent, mServiceConnection, BIND_AUTO_CREATE);
+
+        mRotateBtn = new RoundKnobButton(this,
+                R.drawable.rotate_btn,
+                R.drawable.rotate_btn,
+                (int) ViewHelper.convertDpToPixel(this, getResources().getDimension(R.dimen.rotate_btn)),
+                (int) ViewHelper.convertDpToPixel(this, getResources().getDimension(R.dimen.rotate_btn)),
+                DEGREE_RANGE);
+        RelativeLayout.LayoutParams layoutParams = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
+        layoutParams.addRule(RelativeLayout.CENTER_IN_PARENT);
+        mRotateBtnParent.addView(mRotateBtn, layoutParams);
+
+        mRotateBtn.setRotorPercentage(0);
+
+        mRotateBtn.setListener(new RoundKnobButton.RoundKnobButtonListener() {
+            @Override
+            public void onStateChange(boolean newstate) {}
+
+            @Override
+            public void onRotate(int percentage) {
+                Log.d(TAG, "rotate percentage: " + percentage);
+                controlSmallCircles(percentage);
+            }
+        });
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+
+        if (mHasPartInit == false) {
+            doPartInit();
+        }
+    }
+
+    private void doPartInit() {
+        mHasPartInit = true;
+
+        mSmallCircleSize = new float[]{mHiddenBlackSmallCircle.getWidth(), mHiddenBlackSmallCircle.getHeight()};
+        Log.d(TAG, "small circle size: w: " + mSmallCircleSize[0] + ", h: " + mSmallCircleSize[1]);
+        mCirclesRadius = mRotateBtn.getWidth() / 2 + 20;
+
+        generateCircle();
     }
 
     @Override
@@ -296,5 +366,47 @@ public class DeviceControlActivity extends SherlockActivity {
             mBluetoothLeService.setCharacteristicNotification(characteristicRX, true);
         }
     }
+
+    private void controlSmallCircles(int percentage) {
+        int num = mSmallWhiteCircleArray.size() * percentage / 100;
+        if (percentage == 99) {
+            num += 1;
+        }
+        Log.d(TAG, "white light num: " + num + ", white lights total num: " + mSmallWhiteCircleArray.size());
+        for (int i = 0; i < num; ++i) {
+            mSmallWhiteCircleArray.get(i).setVisibility(View.VISIBLE);
+        }
+        for (int i = num; i < mSmallWhiteCircleArray.size(); ++i) {
+            mSmallWhiteCircleArray.get(i).setVisibility(View.GONE);
+        }
+    }
+
+    private void generateCircle() {
+        int centerX = mRotateBtnParent.getWidth();
+        int centerY = mRotateBtnParent.getHeight();
+        Log.d(TAG, "target parent view: width: " + centerX + ", pvY: " + centerY);
+        ArrayList<ArrayList<Float>> pointsPositionArray = MathHelper.generateCirclePositionArray(centerX / 2, centerY / 2, DEGREE_RANGE[0], DEGREE_RANGE[1], mCirclesRadius, POINT_NUM);
+        int num = pointsPositionArray.size();
+        for (int i = 0; i < num; ++i) {
+            ArrayList<Float> position = pointsPositionArray.get(i);
+            ImageView v = new ImageView(this);
+            v.setBackgroundResource(R.drawable.black_small_circle);
+            mRotateBtnParent.addView(v, new FrameLayout.LayoutParams((int) getResources().getDimension(R.dimen.small_circl_radius), (int) getResources().getDimension(R.dimen.small_circl_radius)));
+            float[] leftTopPosition = ViewHelper.convertCenterPosition2LeftTopPosition(mSmallCircleSize[0], mSmallCircleSize[1], position.get(0), position.get(1));
+            v.setX(leftTopPosition[0]);
+            v.setY(leftTopPosition[1]);
+            mSmallBlackCircleArray.add(v);
+
+            ImageView v2 = new ImageView(this);
+            v2.setBackgroundResource(R.drawable.white_small_circle);
+            mRotateBtnParent.addView(v2, new FrameLayout.LayoutParams((int) getResources().getDimension(R.dimen.small_circl_radius), (int) getResources().getDimension(R.dimen.small_circl_radius)));
+            leftTopPosition = ViewHelper.convertCenterPosition2LeftTopPosition(mSmallCircleSize[0], mSmallCircleSize[1], position.get(0), position.get(1));
+            v2.setX(leftTopPosition[0]);
+            v2.setY(leftTopPosition[1]);
+            v2.setVisibility(View.GONE);
+            mSmallWhiteCircleArray.add(v2);
+        }
+    }
+
 
 }
